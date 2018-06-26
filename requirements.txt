@@ -1,0 +1,11 @@
+attrs==18.1.0
+Automat==0.7.0
+constantly==15.1.0
+hyperlink==18.0.0
+idna==2.7
+incremental==17.5.0
+psycopg2-binary==2.7.5
+six==1.11.0
+Twisted==18.4.0
+txpostgres==1.6.0
+zope.interface==4.5.0
