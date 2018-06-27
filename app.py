@@ -5,7 +5,8 @@ from twisted.web.server import Site, NOT_DONE_YET
 from twisted.web.resource import Resource
 from twisted.web.static import File
 from twisted.internet import reactor, defer
-from txpostgres import txpostgres
+
+import txredisapi as redis
 
 PAGE = '''
 <!doctype html>
@@ -32,17 +33,10 @@ class Redirect(Resource):
 
     @defer.inlineCallbacks
     def redirect(self, request):
-        conn = yield txpostgres.Connection().connect(
-            database='link_shortener',
-            user='postgres',
-            password='1'
-        )
-        try:
-            rows = yield conn.runQuery("select link from links where code='{}'".format(self.path))
-        except Exception as e:
-            print(e)
-        yield conn.close()
-        request.redirect(rows[0][0].encode('utf-8'))
+        conn = yield redis.Connection()
+        link = yield conn.get("link:%s" % self.path)
+        yield conn.disconnect()
+        request.redirect(link)
         request.finish()
 
     def render_GET(self, request):
@@ -67,21 +61,13 @@ class IndexPage(Resource):
 
     @defer.inlineCallbacks
     def add_link(self, link, request):
-        conn = yield txpostgres.Connection().connect(
-            database='link_shortener',
-            user='postgres',
-            password='1'
-        )
+        conn = yield redis.Connection()
         while True:
             code = generate_code()
-            try:
-                yield conn.runOperation(
-                    "insert into links (code, link) values ('{}', '{}')".format(code, link)
-                )
+            ok = yield conn.setnx("link:%s" % code, link)
+            if ok:
                 break
-            except Exception:
-                pass
-        yield conn.close()
+        yield conn.disconnect()
         body = '''
         <p>Shortened link: <a href='http://localhost:8000/{0}'>http://localhost:8000/{0}</a>
         '''.format(code)
