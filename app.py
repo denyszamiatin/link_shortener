@@ -4,9 +4,11 @@ import string
 from twisted.web.server import Site, NOT_DONE_YET
 from twisted.web.resource import Resource
 from twisted.web.static import File
-from twisted.internet import reactor, defer
+from twisted.internet import reactor, defer, threads
 
 import txredisapi as redis
+
+import qr_enc
 
 PAGE = '''
 <!doctype html>
@@ -69,7 +71,8 @@ class IndexPage(Resource):
                 break
         yield conn.disconnect()
         body = '''
-        <p>Shortened link: <a href='http://localhost:8000/{0}'>http://localhost:8000/{0}</a>
+        <p>Shortened link: <a href='http://localhost:8000/{0}'>http://localhost:8000/{0}</a></p>
+        <p><img src='img/{0}'></p>
         '''.format(code)
         request.write(PAGE.format(body).encode('utf-8'))
         request.finish()
@@ -80,8 +83,27 @@ class IndexPage(Resource):
         return NOT_DONE_YET
 
 
+class QRcode(Resource):
+    def getChild(self, path, request):
+        self.path = path
+        return self
+
+    @defer.inlineCallbacks
+    def generate_image(self, link, request):
+        img = yield threads.deferToThread(qr_enc.encode_string, link)
+        request.setHeader('Content-Type', 'image/png')
+        request.write(img.read())
+        request.finish()
+
+    def render_GET(self, request):
+        link = "http://localhost:8000/%s" % self.path.decode('utf-8')
+        self.generate_image(link, request)
+        return NOT_DONE_YET
+
+
 resource = IndexPage()
 resource.putChild(b'static', File('static'))
+resource.putChild(b'img', QRcode())
 factory = Site(resource)
 
 if __name__ == '__main__':
