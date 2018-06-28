@@ -64,11 +64,14 @@ class IndexPage(Resource):
     @defer.inlineCallbacks
     def add_link(self, link, request):
         conn = yield redis.Connection()
-        while True:
-            code = generate_code()
-            ok = yield conn.setnx("link:%s" % code, link)
-            if ok:
-                break
+        code = yield conn.get('code:%s' % link)
+        if code is None:
+            while True:
+                code = generate_code()
+                ok = yield conn.setnx("link:%s" % code, link)
+                if ok:
+                    break
+            yield conn.set('code:%s' % link, code)
         yield conn.disconnect()
         body = '''
         <p>Shortened link: <a href='http://localhost:8000/{0}'>http://localhost:8000/{0}</a></p>
@@ -90,9 +93,15 @@ class QRcode(Resource):
 
     @defer.inlineCallbacks
     def generate_image(self, link, request):
-        img = yield threads.deferToThread(qr_enc.encode_string, link)
+        conn = yield redis.Connection()
+        image = yield conn.get('image:%s' % link)
+        if image is None:
+            image = yield threads.deferToThread(qr_enc.encode_string, link)
+            image = image.read()
+            yield conn.setnx('image:%s' % link, image)
+            yield conn.expire('image:%s' % link, 300)
         request.setHeader('Content-Type', 'image/png')
-        request.write(img.read())
+        request.write(image)
         request.finish()
 
     def render_GET(self, request):
