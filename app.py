@@ -7,6 +7,7 @@ from twisted.web.static import File
 from twisted.internet import reactor, defer, threads
 
 import txredisapi as redis
+import txmongo as mongo
 
 import qr_enc
 
@@ -96,10 +97,16 @@ class QRcode(Resource):
         conn = yield redis.Connection()
         image = yield conn.get('image:%s' % link)
         if image is None:
-            image = yield threads.deferToThread(qr_enc.encode_string, link)
-            image = image.read()
-            yield conn.setnx('image:%s' % link, image)
-            yield conn.expire('image:%s' % link, 300)
+            m_conn = yield mongo.MongoConnection()
+            doc = yield m_conn.links.images.find_one({'code': link})
+            if doc is None:
+                image = yield threads.deferToThread(qr_enc.encode_string, link)
+                image = image.read()
+                yield conn.setnx('image:%s' % link, image)
+                yield conn.expire('image:%s' % link, 300)
+                yield m_conn.links.images.insert_one({'code': link, 'image': image})
+            else:
+                image = doc['image']
         request.setHeader('Content-Type', 'image/png')
         request.write(image)
         request.finish()
